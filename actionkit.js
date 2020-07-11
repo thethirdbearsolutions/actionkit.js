@@ -688,10 +688,21 @@ forms.onContextLoaded = function(context) {
 
     if ( context.recaptcha_site_key ) {
         console.log("ActionKit recaptcha: loading JavaScript");
-        forms.createScriptElement(
+        if (ak.multiForms) {
+          var callback_function_name = 'actionkit_recaptcha_loaded_' + ak.form.name;
+          window[callback_function_name] = function() {
+            return actionkit_recaptcha_loaded(ak.form.name);
+          };
+          forms.createScriptElement(
+            'https://www.google.com/recaptcha/api.js' +
+            '?onload=' + callback_function_name + '&render=explicit'
+          );
+        } else {
+          forms.createScriptElement(
             'https://www.google.com/recaptcha/api.js' +
             '?onload=actionkit_recaptcha_loaded&render=explicit'
-        );
+          );
+        }
     }
 
     // context may tell us we need to show .ak-privacy
@@ -1040,8 +1051,13 @@ forms.prefillFromDatabag = function(prefillData) {
     $(ak.form).trigger('actionkit.cookiePrefilled', []);
 }
 
-window.actionkit_recaptcha_loaded = function () {
-    console.log("ActionKit recaptcha: JavaScript loaded");
+window.actionkit_recaptcha_loaded = function (form_name) {
+    if (form_name) {
+        ak.forms.setForm(form_name);
+        console.log("ActionKit recaptcha: JavaScript loaded for form " + form_name);
+    } else {
+        console.log("ActionKit recaptcha: JavaScript loaded");
+    }
 
     var recaptcha_box = $('<div>').appendTo( $(ak.form) );
 
