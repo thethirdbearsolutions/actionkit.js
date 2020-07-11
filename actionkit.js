@@ -690,7 +690,7 @@ forms.onContextLoaded = function(context) {
         console.log("ActionKit recaptcha: loading JavaScript");
         if (ak.multiForms) {
           var formName = utils.getAttr(ak.form, 'name');
-          var callback_function_name = 'actionkit_recaptcha_loaded_' + formName);
+          var callback_function_name = 'actionkit_recaptcha_loaded_' + formName;
           window[callback_function_name] = function() {
             return actionkit_recaptcha_loaded(formName);
           };
