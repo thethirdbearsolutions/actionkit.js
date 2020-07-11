@@ -689,9 +689,10 @@ forms.onContextLoaded = function(context) {
     if ( context.recaptcha_site_key ) {
         console.log("ActionKit recaptcha: loading JavaScript");
         if (ak.multiForms) {
-          var callback_function_name = 'actionkit_recaptcha_loaded_' + ak.form.name;
+          var formName = utils.getAttr(ak.form, 'name');
+          var callback_function_name = 'actionkit_recaptcha_loaded_' + formName);
           window[callback_function_name] = function() {
-            return actionkit_recaptcha_loaded(ak.form.name);
+            return actionkit_recaptcha_loaded(formName);
           };
           forms.createScriptElement(
             'https://www.google.com/recaptcha/api.js' +
