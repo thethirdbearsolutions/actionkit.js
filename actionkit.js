@@ -308,11 +308,20 @@ forms.prefill = function(overwrite) {
     // maybe not fire). they can check actionkit.forms.prefilling.
     forms.prefilling = true;
     
-    var prefill_data = ( 
+    var prefill_data = {},
+        skip_prefill_args = {redirect: true},
+        prefill_data_source = (
         ( ak.context && ak.context.prefill_data ) 
         ? ak.context.prefill_data 
         : ak.args
     );
+
+    Object.keys(prefill_data_source).map(function(key) {
+        if (!skip_prefill_args[key]) {
+            prefill_data[key] = prefill_data_source[key];
+        }
+    });
+
     if ( prefill_data.form_name ) 
         forms.setForm(prefill_data.form_name);
     $(ak.form).deserialize(prefill_data, {overwrite: false});
@@ -846,6 +855,7 @@ forms.insertUQDIframe = function(formOptions, messagingOptions){
         } else if (formOptions.defaultAmount && formOptions.amounts.indexOf(formOptions.defaultAmount) > -1) {
             qsObj['default_amt'] = formOptions.defaultAmount;
         }
+	qsObj['source'] = ak.args.source || 'website';
         url = baseURL + 'j/step/' + formOptions.quickdonatePage + '/?' + utils.makeQueryString(qsObj);
     }
     var qdBox = '<div id="ak-qd-donate-menu" style="display:none"><iframe id="uqd-frame" src="' + url + '"></iframe> \
@@ -855,8 +865,8 @@ forms.insertUQDIframe = function(formOptions, messagingOptions){
                  <a href="https://policies.google.com/privacy" target="_blank">Privacy Policy</a> and \
                  <a href="https://policies.google.com/terms" target="_blank">Terms of Service</a> apply.</small></p></div></div>';
     // Add CSS and UQD iframe to form
-    var parent = $(formOptions.selector).prepend(css + qdBox);
-    var iframe = $(parent).find('iframe')[0]
+    var parent = $(formOptions.selector).first().prepend(css + qdBox);
+    var iframe = $(parent).find('iframe')[0];
     // Set up comms with iframe's current host (derived from src)
     try {
         forms.initUQD(iframe, messagingOptions);
@@ -1309,15 +1319,21 @@ forms.fixStateAndZipRequirement = function(required) {
         if ( required[i] == 'region' && !ak.form.region )
             required[i] = 'state';
     }
-    // We can't require region and postcode everywhere, so don't
-    if ( !forms.isUnitedStates() ) {
-        required = $.grep(required, function(field_name) {
-            return !/^(zip|postal|state|region)$/.test(field_name)
-        });
+    // It's nonsensical to require both zip and region, or postal and state.
+    if (required.indexOf('zip') > -1 && required.indexOf('region') > -1) {
+        // Shouldn't have both ZIP and region, change region to state
+        required[required.indexOf('region')] = 'state'
+    }
+    if (required.indexOf('postal') > -1 && required.indexOf('state') > -1) {
+        // Shouldn't have both postal and state, change state to region
+        required[required.indexOf('state')] = 'region'
+    }
+    if (forms.isUnitedStates()) {
+        // If this is a US form, don't require postal/region
+        required = required.filter(field => field != 'postal' && field != 'region')
     } else {
-        required = $.grep(required, function(field_name) {
-            return !/^(postal|region)$/.test(field_name)
-        });
+        // Likewise, if this is a non-US form, don't require zip/state
+        required = required.filter(field => field != 'zip' && field != 'state')
     }
     return required;
 }
@@ -1424,7 +1440,10 @@ forms.validate = function(field) {
         
         if ( field && field != required[i] ) continue;
         
-        elem = $('input[name="'+(required[i]||'akdummyname_donotuse')+'"]');
+        elem = $(':input[name="'+(required[i]||'akdummyname_donotuse')+'"]');
+        if ( elem.filter(':visible').length == 0 ) {
+            continue
+        }
         if (elem && elem.attr('type') == "checkbox") {
             if (!elem.is(":checked")) {
                 // checkboxes require special handling since only one
@@ -1457,22 +1476,6 @@ forms.validate = function(field) {
                 val = val.replace(/^(\d?\d)20(\d\d)$/, '$1$2');
                 if ( val.length == 3 ) val = '0' + val;
                 elem.value = val;
-            }
-            var emoji = elem.value.match(/(?:[\uD800-\uDBFF][\uDC00-\uDFFF])/g);
-            if (elem.name.indexOf('user_') == -1 &&
-                elem.name.indexOf('action_') == -1 &&
-                emoji) {
-                // emoji don't cause errors when used in user_ fields and action_ fields
-                // but do with others, so raise an error if they appear
-                var supportedEmojiFields = [
-                    'event_public_description',
-                    'event_notes',
-                    'event_directions',
-                    'event_note_to_attendees'
-                ]
-                if (supportedEmojiFields.indexOf(elem.name) == -1) {
-                    errors[elem.name + ':emoji'] = forms.errorMessage(emoji + ':emoji')
-                }
             }
             if ( elem.name == 'event_starts_at_date' || elem.name == 'event_ends_at_date' ) {
                 val = val.replace(/\/(\d\d)$/, '/20$1');
@@ -1565,7 +1568,7 @@ forms.onValidationErrors = function(errors, field) {
         var fieldName = error.split(':')[0];
         var selector = '[name="' + fieldName + '"]';
 
-        if (actionkit.donations && actionkit.donations.vzero) {
+        if (actionkit.donations && (actionkit.donations.vzero || actionkit.donations.vgs)) {
             // v.zero workarounds
             if (fieldName == 'card_num') {
                 selector = "#ak-card_num-hosted";
@@ -1577,7 +1580,7 @@ forms.onValidationErrors = function(errors, field) {
         }
 
         return $(ak.form).find(selector)
-                .closest('.ak-err-above,.ak-err-below,.ak-err-after');
+            .closest('.ak-err-above:visible,.ak-err-below:visible,.ak-err-after:visible');
     }
     for ( error in errors ) {
         if ( !errors.hasOwnProperty(error) )
@@ -2454,6 +2457,11 @@ utils.compile = function(code, paramlist) {
 
 utils.capitalize = function(str) {
     return str.replace(/^(.)/, function(m) {return m.toUpperCase()} )
+}
+
+utils.safe_trim = function(str) {
+    if ( str == null ) { return ''; }
+    return String(str).trim()
 }
 
 utils.addCommas = utils.add_commas = function(str, comma) {
